@@ -18,7 +18,11 @@
     "codex": {
       "channel": "latest",
       "install_dir": "~/.codex/packages/standalone/releases",
-      "bin_dir": "~/.local/bin",
+      "bin_dir": {
+        "darwin": "~/.local/bin",
+        "linux": "~/.local/bin",
+        "windows": "%LOCALAPPDATA%/Programs/OpenAI/Codex/bin"
+      },
       "binary": "auto"
     },
     "copilot": {

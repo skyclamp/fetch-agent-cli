@@ -25,7 +25,7 @@ GITHUB_RELEASE_BASE = "https://github.com/openai/codex/releases/download"
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_FILE = SCRIPT_DIR / "config.json"
 STATE_FILE = SCRIPT_DIR / ".state" / "fetch_codex.json"
-STATE_SCHEMA_VERSION = 1
+STATE_SCHEMA_VERSION = 2
 USER_AGENT = "fetch-cli-tools-codex-installer"
 CHUNK_SIZE = 1024 * 1024
 VERSION_PATTERN = re.compile(
@@ -34,8 +34,10 @@ VERSION_PATTERN = re.compile(
 CHECKSUM_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 SUPPORTED_BINARIES = {
     "aarch64-apple-darwin",
+    "aarch64-pc-windows-msvc",
     "aarch64-unknown-linux-musl",
     "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
     "x86_64-unknown-linux-musl",
 }
 
@@ -69,10 +71,24 @@ def read_json_file(path, description):
 
 
 def resolve_config_path(config_path, value):
-    result = Path(value).expanduser()
+    result = Path(os.path.expandvars(value)).expanduser()
     if not result.is_absolute():
         result = config_path.expanduser().resolve().parent / result
     return result
+
+
+def configured_bin_dir(config_path, value):
+    if isinstance(value, str) and value:
+        return resolve_config_path(config_path, value)
+    if not isinstance(value, dict):
+        raise RuntimeError("tools.codex.bin_dir must be a path or platform path object")
+    system = platform.system().lower()
+    selected = value.get(system)
+    if not isinstance(selected, str) or not selected:
+        raise RuntimeError(
+            "tools.codex.bin_dir does not contain a path for {}".format(system)
+        )
+    return resolve_config_path(config_path, selected)
 
 
 def load_config(path):
@@ -93,8 +109,6 @@ def load_config(path):
         raise RuntimeError("tools.codex.channel only supports 'latest'")
     if not isinstance(install_dir, str) or not install_dir:
         raise RuntimeError("tools.codex.install_dir must be a directory path")
-    if not isinstance(bin_dir, str) or not bin_dir:
-        raise RuntimeError("tools.codex.bin_dir must be a directory path")
     if not isinstance(binary, str) or (
         binary != "auto" and binary not in SUPPORTED_BINARIES
     ):
@@ -107,7 +121,7 @@ def load_config(path):
     return {
         "channel": channel,
         "install_dir": resolve_config_path(path, install_dir),
-        "bin_dir": resolve_config_path(path, bin_dir),
+        "bin_dir": configured_bin_dir(path, bin_dir),
         "binary": binary,
     }
 
@@ -143,9 +157,7 @@ def detect_binary():
     if system == "Linux":
         return "{}-unknown-linux-musl".format(architecture)
     if system == "Windows":
-        raise RuntimeError(
-            "this script currently supports macOS and Linux; Codex uses a separate official Windows installer"
-        )
+        return "{}-pc-windows-msvc".format(architecture)
     raise RuntimeError("unsupported operating system: {}".format(system))
 
 
@@ -372,9 +384,15 @@ def read_installed_paths(state, key):
 
 
 def remove_installed_paths(state):
+    junctions = read_installed_paths(state, "installed_junctions")
     links = read_installed_paths(state, "installed_links")
     files = read_installed_paths(state, "installed_files")
     directories = read_installed_paths(state, "installed_directories")
+    for path in sorted(junctions, key=lambda item: len(item.parts), reverse=True):
+        try:
+            path.rmdir()
+        except FileNotFoundError:
+            pass
     for path in sorted(links + files, key=lambda item: len(item.parts), reverse=True):
         try:
             path.unlink()
@@ -417,39 +435,53 @@ def prepare_package(archive_path, staging_dir, binary, validate_runtime, version
     with tarfile.open(str(archive_path), "r:gz") as archive:
         archive.extractall(str(staging_dir))
 
-    executable_paths = [
-        staging_dir / "bin" / "codex",
-        staging_dir / "bin" / "codex-code-mode-host",
-        staging_dir / "codex-path" / "rg",
-    ]
-    bwrap_path = staging_dir / "codex-resources" / "bwrap"
-    if binary.endswith("unknown-linux-musl"):
-        executable_paths.append(bwrap_path)
+    windows = binary.endswith("pc-windows-msvc")
+    if windows:
+        executable_paths = [
+            staging_dir / "bin" / "codex.exe",
+            staging_dir / "bin" / "codex-code-mode-host.exe",
+            staging_dir / "codex-path" / "rg.exe",
+            staging_dir / "codex-resources" / "codex-command-runner.exe",
+            staging_dir / "codex-resources" / "codex-windows-sandbox-setup.exe",
+        ]
+    else:
+        executable_paths = [
+            staging_dir / "bin" / "codex",
+            staging_dir / "bin" / "codex-code-mode-host",
+            staging_dir / "codex-path" / "rg",
+        ]
+        if binary.endswith("unknown-linux-musl"):
+            executable_paths.append(staging_dir / "codex-resources" / "bwrap")
     for path in executable_paths:
         if not path.is_file():
             raise RuntimeError("Codex package is missing required file: {}".format(path))
-        path.chmod(
-            stat.S_IRUSR
-            | stat.S_IWUSR
-            | stat.S_IXUSR
-            | stat.S_IRGRP
-            | stat.S_IXGRP
-            | stat.S_IROTH
-            | stat.S_IXOTH
-        )
+        if not windows:
+            path.chmod(
+                stat.S_IRUSR
+                | stat.S_IWUSR
+                | stat.S_IXUSR
+                | stat.S_IRGRP
+                | stat.S_IXGRP
+                | stat.S_IROTH
+                | stat.S_IXOTH
+            )
     if not (staging_dir / "codex-package.json").is_file():
         raise RuntimeError("Codex package is missing codex-package.json")
 
-    codex_link = staging_dir / "codex"
-    try:
-        codex_link.unlink()
-    except FileNotFoundError:
-        pass
-    os.symlink("bin/codex", str(codex_link))
+    if windows:
+        command = staging_dir / "bin" / "codex.exe"
+    else:
+        codex_link = staging_dir / "codex"
+        try:
+            codex_link.unlink()
+        except FileNotFoundError:
+            pass
+        os.symlink("bin/codex", str(codex_link))
+        command = staging_dir / "bin" / "codex"
 
     if validate_runtime:
         result = subprocess.run(
-            [str(staging_dir / "bin" / "codex"), "--version"],
+            [str(command), "--version"],
             check=False,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -480,6 +512,29 @@ def create_symlink_value(path, link_target):
 def create_symlink(path, target):
     relative_target = os.path.relpath(str(target), str(path.parent))
     create_symlink_value(path, relative_target)
+
+
+def create_junction(path, target):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if os.path.lexists(str(path)):
+        raise RuntimeError("junction path already exists: {}".format(path))
+    result = subprocess.run(
+        ["cmd.exe", "/d", "/c", "mklink", "/J", str(path), str(target)],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+    )
+    if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError("could not create junction {}: {}".format(path, message))
+
+
+def junction_matches(path, target):
+    try:
+        return path.is_dir() and path.resolve() == target.resolve()
+    except OSError:
+        return False
 
 
 def copy_package(staging_dir, release_dir):
@@ -532,8 +587,21 @@ def state_matches(state, version, binary, install_dir, bin_dir):
     ):
         return False
     links = read_installed_paths(state, "installed_links")
+    junctions = read_installed_paths(state, "installed_junctions")
     files = read_installed_paths(state, "installed_files")
     directories = read_installed_paths(state, "installed_directories")
+    windows = binary.endswith("pc-windows-msvc")
+    if windows:
+        release_dir = install_dir / "{}-{}".format(version, binary)
+        current = install_dir.parent / "current"
+        if state.get("installed_junctions") != [str(current), str(bin_dir)]:
+            return False
+        if not junction_matches(current, release_dir):
+            return False
+        if not junction_matches(bin_dir, current / "bin"):
+            return False
+    elif junctions:
+        return False
     return (
         bool(files)
         and bool(directories)
@@ -552,9 +620,24 @@ def main():
     version = release["version"]
     release_dir = config["install_dir"] / "{}-{}".format(version, binary)
     current_link = config["install_dir"].parent / "current"
-    codex_entry = config["bin_dir"] / "codex"
-    host_entry = config["bin_dir"] / "codex-code-mode-host"
+    windows = binary.endswith("pc-windows-msvc")
+    codex_entry = config["bin_dir"] / ("codex.exe" if windows else "codex")
+    host_entry = config["bin_dir"] / (
+        "codex-code-mode-host.exe" if windows else "codex-code-mode-host"
+    )
     state = read_state()
+
+    if windows:
+        recorded_junctions = {
+            str(path) for path in read_installed_paths(state, "installed_junctions")
+        }
+        for path in (current_link, config["bin_dir"]):
+            if os.path.lexists(str(path)) and str(path) not in recorded_junctions:
+                raise RuntimeError(
+                    "junction path already exists but is not managed by this installer: {}".format(
+                        path
+                    )
+                )
 
     print("Checking Codex latest channel for {}...".format(binary), flush=True)
     if not args.force and state_matches(
@@ -602,15 +685,22 @@ def main():
         installed_links, installed_files, installed_directories = copy_package(
             staging_dir, release_dir
         )
-        create_symlink(current_link, release_dir)
-        installed_links.append(str(current_link))
-        create_symlink(codex_entry, current_link / "bin" / "codex")
-        installed_links.append(str(codex_entry))
-        if binary.endswith("apple-darwin"):
-            create_symlink(
-                host_entry, current_link / "bin" / "codex-code-mode-host"
-            )
-            installed_links.append(str(host_entry))
+        installed_junctions = []
+        if windows:
+            create_junction(current_link, release_dir)
+            installed_junctions.append(str(current_link))
+            create_junction(config["bin_dir"], current_link / "bin")
+            installed_junctions.append(str(config["bin_dir"]))
+        else:
+            create_symlink(current_link, release_dir)
+            installed_links.append(str(current_link))
+            create_symlink(codex_entry, current_link / "bin" / "codex")
+            installed_links.append(str(codex_entry))
+            if binary.endswith("apple-darwin"):
+                create_symlink(
+                    host_entry, current_link / "bin" / "codex-code-mode-host"
+                )
+                installed_links.append(str(host_entry))
     finally:
         shutil.rmtree(str(temporary_root), ignore_errors=True)
 
@@ -622,15 +712,20 @@ def main():
             "install_dir": str(config["install_dir"]),
             "installed_directories": installed_directories,
             "installed_files": installed_files,
+            "installed_junctions": installed_junctions,
             "installed_links": installed_links,
             "schema_version": STATE_SCHEMA_VERSION,
             "version": version,
         }
     )
     print("Installed Codex {} at {}.".format(version, release_dir))
-    print("Created symlink command entry at {}.".format(codex_entry))
-    if binary.endswith("apple-darwin"):
-        print("Created symlink command entry at {}.".format(host_entry))
+    if windows:
+        print("Created junction command directory at {}.".format(config["bin_dir"]))
+        print("Add {} to PATH.".format(config["bin_dir"]))
+    else:
+        print("Created symlink command entry at {}.".format(codex_entry))
+        if binary.endswith("apple-darwin"):
+            print("Created symlink command entry at {}.".format(host_entry))
 
 
 if __name__ == "__main__":

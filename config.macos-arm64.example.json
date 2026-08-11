@@ -1,0 +1,32 @@
+{
+  "tools": {
+    "antigravity": {
+      "channel": "latest",
+      "install_dir": "~/.local/bin",
+      "binary": "darwin_arm64"
+    },
+    "claude_code": {
+      "channel": "latest",
+      "install_dir": "~/.claude/downloads",
+      "bin_dir": "~/.local/bin",
+      "binary": "darwin-arm64"
+    },
+    "codex": {
+      "channel": "latest",
+      "install_dir": "~/.codex/packages/standalone/releases",
+      "bin_dir": "~/.local/bin",
+      "binary": "aarch64-apple-darwin"
+    },
+    "copilot": {
+      "channel": "latest",
+      "install_dir": "~/.local/bin",
+      "binary": "darwin-arm64"
+    },
+    "grok": {
+      "channel": "stable",
+      "install_dir": "~/.grok/downloads",
+      "bin_dir": "~/.grok/bin",
+      "binary": "macos-aarch64"
+    }
+  }
+}

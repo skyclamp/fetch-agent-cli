@@ -1,0 +1,32 @@
+{
+  "tools": {
+    "antigravity": {
+      "channel": "latest",
+      "install_dir": "%LOCALAPPDATA%/agy/bin",
+      "binary": "windows_amd64"
+    },
+    "claude_code": {
+      "channel": "latest",
+      "install_dir": "~/.claude/downloads",
+      "bin_dir": "~/.local/bin",
+      "binary": "win32-x64"
+    },
+    "codex": {
+      "channel": "latest",
+      "install_dir": "~/.codex/packages/standalone/releases",
+      "bin_dir": "%LOCALAPPDATA%/Programs/OpenAI/Codex/bin",
+      "binary": "x86_64-pc-windows-msvc"
+    },
+    "copilot": {
+      "channel": "latest",
+      "install_dir": "~/.local/bin",
+      "binary": "win32-x64"
+    },
+    "grok": {
+      "channel": "stable",
+      "install_dir": "~/.grok/downloads",
+      "bin_dir": "~/.grok/bin",
+      "binary": "windows-x86_64"
+    }
+  }
+}
