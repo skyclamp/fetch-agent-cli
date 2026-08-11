@@ -6,8 +6,8 @@
       "binary": "windows_amd64"
     },
     "claude_code": {
-      "channel": "latest",
-      "install_dir": "~/.claude/downloads",
+      "channel": "stable",
+      "install_dir": "~/.local/share/claude/versions",
       "bin_dir": "~/.local/bin",
       "binary": "win32-x64"
     },

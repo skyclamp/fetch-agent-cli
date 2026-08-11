@@ -6,8 +6,8 @@
       "binary": "darwin_arm64"
     },
     "claude_code": {
-      "channel": "latest",
-      "install_dir": "~/.claude/downloads",
+      "channel": "stable",
+      "install_dir": "~/.local/share/claude/versions",
       "bin_dir": "~/.local/bin",
       "binary": "darwin-arm64"
     },
