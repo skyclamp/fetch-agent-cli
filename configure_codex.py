@@ -84,7 +84,7 @@ def configure_context_windows(data, context_profile):
     return configured_slugs
 
 
-def ensure_model_catalog_config(config_path, catalog_path, legacy_catalog_paths=()):
+def ensure_model_catalog_config(config_path, catalog_path):
     try:
         current = config_path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -92,13 +92,6 @@ def ensure_model_catalog_config(config_path, catalog_path, legacy_catalog_paths=
 
     absolute_catalog_path = catalog_path.absolute()
     catalog_path_text = str(absolute_catalog_path)
-    migrated_legacy_reference = False
-    for legacy_catalog_path in legacy_catalog_paths:
-        legacy_path_text = str(legacy_catalog_path.absolute())
-        if legacy_path_text in current:
-            current = current.replace(legacy_path_text, catalog_path_text)
-            migrated_legacy_reference = True
-
     setting = "model_catalog_json = {}\n".format(
         json.dumps(catalog_path_text, ensure_ascii=False)
     )
@@ -109,11 +102,8 @@ def ensure_model_catalog_config(config_path, catalog_path, legacy_catalog_paths=
     if match is None:
         updated = setting + current
         status = "added"
-    elif match.group(0) == setting and not migrated_legacy_reference:
-        return "unchanged"
     elif match.group(0) == setting:
-        updated = current
-        status = "updated"
+        return "unchanged"
     else:
         updated = current[: match.start()] + setting + current[match.end() :]
         status = "updated"
@@ -127,8 +117,7 @@ def main():
     args = parse_args()
     codex_dir = Path.home() / ".codex"
     config_path = codex_dir / "config.toml"
-    catalog_path = codex_dir / "models-context.json"
-    legacy_catalog_path = codex_dir / "models-1m.json"
+    catalog_path = codex_dir / "my-model-catalog.json"
 
     data = bundled_model_catalog()
     configured_slugs = configure_context_windows(data, args.context_window)
@@ -138,14 +127,7 @@ def main():
         json.dumps(data, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    config_status = ensure_model_catalog_config(
-        config_path, catalog_path, legacy_catalog_paths=(legacy_catalog_path,)
-    )
-
-    removed_legacy_catalog = False
-    if legacy_catalog_path != catalog_path and legacy_catalog_path.is_file():
-        legacy_catalog_path.unlink()
-        removed_legacy_catalog = True
+    config_status = ensure_model_catalog_config(config_path, catalog_path)
 
     print(
         "Configured {} context for {} in {}.".format(
@@ -153,8 +135,6 @@ def main():
         )
     )
     print("{} model_catalog_json in {}.".format(config_status.capitalize(), config_path))
-    if removed_legacy_catalog:
-        print("Removed legacy model catalog {}.".format(legacy_catalog_path))
 
 
 if __name__ == "__main__":
