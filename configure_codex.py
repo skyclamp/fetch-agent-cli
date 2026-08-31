@@ -40,7 +40,7 @@ def parse_args():
         choices=CONTEXT_CHOICES,
         default="272k",
         help="use a 272k, 372k, or 1M context with a 1M override ceiling "
-        "(default: 1m)",
+        "(default: 272k)",
     )
     return parser.parse_args()
 
